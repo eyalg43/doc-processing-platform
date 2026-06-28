@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_tenant
+from app.core.cache import get_cached_document, set_cached_document
+from app.core.rate_limit import check_rate_limit
 from app.db.session import get_db
 from app.models.document import Document
 from app.schemas.document import DocumentCreate, DocumentResponse
@@ -16,7 +17,7 @@ router = APIRouter()
 async def create_document(
     body: DocumentCreate,
     db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(get_current_tenant),
+    tenant_id: uuid.UUID = Depends(check_rate_limit),
 ):
     document = Document(
         tenant_id=tenant_id,
@@ -37,11 +38,24 @@ async def create_document(
 async def get_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(get_current_tenant),
+    tenant_id: uuid.UUID = Depends(check_rate_limit),
 ):
+    # Cache-aside: check Redis first
+    cached = await get_cached_document(document_id)
+    if cached:
+        if str(cached.get("tenant_id")) != str(tenant_id):
+            raise HTTPException(status_code=404, detail="Document not found")
+        return cached
+
+    # Cache miss: query Postgres
     document = await db.get(Document, document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     if document.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Document not found")
+
+    # Store in Redis for next time
+    data = DocumentResponse.model_validate(document).model_dump(mode="json")
+    await set_cached_document(document_id, data)
+
     return document

@@ -1,9 +1,11 @@
 import asyncio
 import uuid
 
+import redis.asyncio as aioredis
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import select
 
-from app.db.session import AsyncSessionLocal
+from app.core.config import settings
 from app.models.document import Document
 from app.workers.celery_app import celery_app
 
@@ -19,38 +21,50 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
 
 
 async def _process(task, document_id: str, tenant_id: str) -> dict:
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(Document).where(
-                Document.id == uuid.UUID(document_id),
-                Document.tenant_id == uuid.UUID(tenant_id),
+    # Create a fresh engine per task invocation to avoid asyncpg event loop conflicts on Windows
+    engine = create_async_engine(settings.database_url)
+    session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+    try:
+        async with session_factory() as db:
+            result = await db.execute(
+                select(Document).where(
+                    Document.id == uuid.UUID(document_id),
+                    Document.tenant_id == uuid.UUID(tenant_id),
+                )
             )
-        )
-        document = result.scalar_one_or_none()
+            document = result.scalar_one_or_none()
 
-        if not document:
-            return {"status": "skipped", "reason": "not found"}
+            if not document:
+                return {"status": "skipped", "reason": "not found"}
 
-        if document.status == "done":
-            return {"status": "skipped", "reason": "already processed"}
+            if document.status == "done":
+                return {"status": "skipped", "reason": "already processed"}
 
-        try:
-            document.status = "processing"
-            await db.commit()
+            try:
+                document.status = "processing"
+                await db.commit()
 
-            # Phase 4: real AI processing goes here
-            # For now we simulate work
-            import time
-            time.sleep(2)
+                import time
+                time.sleep(2)
 
-            document.status = "done"
-            document.extracted_text = f"Simulated extraction for {document.filename}"
-            document.summary = f"Simulated summary for {document.filename}"
-            await db.commit()
+                document.status = "done"
+                document.extracted_text = f"Simulated extraction for {document.filename}"
+                document.summary = f"Simulated summary for {document.filename}"
+                await db.commit()
 
-            return {"status": "done", "document_id": document_id}
+                # Create fresh Redis client per task to avoid event loop conflicts on Windows
+                redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+                try:
+                    await redis_client.delete(f"document:{document_id}")
+                finally:
+                    await redis_client.aclose()
 
-        except Exception as exc:
-            document.status = "pending"
-            await db.commit()
-            raise task.retry(exc=exc)
+                return {"status": "done", "document_id": document_id}
+
+            except Exception as exc:
+                document.status = "pending"
+                await db.commit()
+                raise task.retry(exc=exc)
+    finally:
+        await engine.dispose()
