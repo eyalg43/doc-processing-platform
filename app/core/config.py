@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 30
 
+    # Kafka
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_topic_documents: str = "documents"
+
+    # Redis / Celery
+    redis_url: str = "redis://localhost:6379/0"
+
     # App
     app_env: str = "development"
     debug: bool = False

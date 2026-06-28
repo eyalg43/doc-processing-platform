@@ -7,6 +7,7 @@ from app.core.dependencies import get_current_tenant
 from app.db.session import get_db
 from app.models.document import Document
 from app.schemas.document import DocumentCreate, DocumentResponse
+from app.services.kafka_producer import publish_document_event
 
 router = APIRouter()
 
@@ -26,6 +27,9 @@ async def create_document(
     db.add(document)
     await db.commit()
     await db.refresh(document)
+
+    publish_document_event(document.id, tenant_id)
+
     return document
 
 
