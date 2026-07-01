@@ -2,10 +2,11 @@ import asyncio
 import uuid
 
 import redis.asyncio as aioredis
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.models.chunk import DocumentChunk
 from app.models.document import Document
 from app.workers.celery_app import celery_app
 
@@ -21,7 +22,8 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
 
 
 async def _process(task, document_id: str, tenant_id: str) -> dict:
-    # Create a fresh engine per task invocation to avoid asyncpg event loop conflicts on Windows
+    from app.services.ai import chunk_text, embed_chunks, extract_and_summarize
+
     engine = create_async_engine(settings.database_url)
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -45,15 +47,32 @@ async def _process(task, document_id: str, tenant_id: str) -> dict:
                 document.status = "processing"
                 await db.commit()
 
-                import time
-                time.sleep(2)
+                # Real AI: extract text and summarize
+                extracted_text, summary = extract_and_summarize(
+                    document.filename, document.content_type
+                )
+
+                # Chunk and embed
+                chunks = chunk_text(extracted_text)
+                embeddings = embed_chunks(chunks)
+
+                # Save chunks to Postgres
+                for i, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
+                    chunk = DocumentChunk(
+                        document_id=document.id,
+                        tenant_id=document.tenant_id,
+                        chunk_index=i,
+                        content=chunk_content,
+                        embedding=embedding,
+                    )
+                    db.add(chunk)
 
                 document.status = "done"
-                document.extracted_text = f"Simulated extraction for {document.filename}"
-                document.summary = f"Simulated summary for {document.filename}"
+                document.extracted_text = extracted_text
+                document.summary = summary
                 await db.commit()
 
-                # Create fresh Redis client per task to avoid event loop conflicts on Windows
+                # Invalidate Redis cache so next GET returns fresh data
                 redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
                 try:
                     await redis_client.delete(f"document:{document_id}")

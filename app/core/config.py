@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Redis / Celery
     redis_url: str = "redis://localhost:6379/0"
 
+    # OpenAI
+    openai_api_key: str
+
     # Caching
     cache_ttl_seconds: int = 30
     rate_limit_requests: int = 60  # per tenant per minute

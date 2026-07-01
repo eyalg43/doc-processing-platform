@@ -35,3 +35,4 @@ class Document(Base):
     )
 
     tenant: Mapped["Tenant"] = relationship(back_populates="documents")
+    chunks: Mapped[list["DocumentChunk"]] = relationship(back_populates="document")
