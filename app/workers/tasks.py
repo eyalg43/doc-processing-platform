@@ -2,6 +2,7 @@ import asyncio
 import uuid
 
 import redis.asyncio as aioredis
+import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -9,6 +10,8 @@ from app.core.config import settings
 from app.models.chunk import DocumentChunk
 from app.models.document import Document
 from app.workers.celery_app import celery_app
+
+logger = structlog.get_logger(__name__)
 
 
 @celery_app.task(
@@ -84,6 +87,19 @@ async def _process(task, document_id: str, tenant_id: str) -> dict:
             except Exception as exc:
                 document.status = "pending"
                 await db.commit()
+                if task.request.retries >= task.max_retries:
+                    logger.error(
+                        "task_sent_to_dlq",
+                        document_id=document_id,
+                        tenant_id=tenant_id,
+                        error=str(exc),
+                    )
+                    celery_app.send_task(
+                        "process_document_dlq",
+                        args=[document_id, tenant_id, str(exc)],
+                        queue="documents.dlq",
+                    )
+                    return {"status": "failed", "document_id": document_id}
                 raise task.retry(exc=exc)
     finally:
         await engine.dispose()

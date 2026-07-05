@@ -15,4 +15,12 @@ celery_app.conf.update(
     accept_content=["json"],
     task_acks_late=True,
     task_reject_on_worker_lost=True,
+    # Dead letter queue — failed tasks land here after all retries exhausted
+    task_routes={
+        "process_document": {"queue": "documents"},
+    },
+    task_queues={
+        "documents": {},
+        "documents.dlq": {},
+    },
 )

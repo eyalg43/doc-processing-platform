@@ -40,12 +40,15 @@ Company ──HTTP POST /documents──▶ FastAPI (JWT auth, multi-tenant)
 | **AI / LLM** | OpenAI GPT-4o-mini, text-embedding-3-small |
 | **RAG Pipeline** | LangChain, LangChain-OpenAI |
 | **Chunking** | LangChain RecursiveCharacterTextSplitter |
+| **Observability** | Prometheus + Grafana (metrics + dashboards) |
+| **Logging** | structlog (structured JSON logs + correlation IDs) |
+| **Resilience** | pybreaker (circuit breaker around OpenAI) |
 | **Infra** | Docker Compose |
 | **Dependency Management** | uv (Astral) |
 
 ---
 
-## Features Built (Phases 1–4)
+## Features Built (Phases 1–5)
 
 ### Phase 1 — Foundation
 - Multi-tenant FastAPI REST API
@@ -74,6 +77,14 @@ Company ──HTTP POST /documents──▶ FastAPI (JWT auth, multi-tenant)
 - OpenAI `text-embedding-3-small` embeddings stored in pgvector
 - `POST /ask` endpoint: semantic search over tenant's document corpus
 - RAG pipeline: embed question → cosine similarity search → LLM answers from retrieved context
+
+### Phase 5 — Observability & Resilience
+- Structured JSON logging with `structlog` — every log line includes `correlation_id` and `tenant_id`
+- Correlation ID middleware — unique ID generated per request, traceable end-to-end across API → Kafka → Celery
+- Prometheus metrics auto-instrumented on all endpoints (request count, latency histograms, error rates)
+- Grafana dashboard connected to Prometheus for live visualization
+- Circuit breaker (`pybreaker`) around all OpenAI calls — trips after 3 failures, recovers after 30 seconds
+- Dead Letter Queue — tasks that exhaust all retries are routed to `documents.dlq` instead of being silently dropped
 
 ---
 
@@ -138,6 +149,5 @@ OPENAI_API_KEY=sk-...
 
 ## Coming Next
 
-- **Phase 5** — Prometheus + Grafana observability, structured logging, circuit breakers, dead-letter queue, Locust load testing
 - **Phase 6** — AWS deployment (EKS, RDS, ElastiCache, MSK, S3) via Terraform + GitHub Actions CI/CD
 - **Phase 7** — Real file uploads (PDF parsing), CrewAI multi-agent orchestration, SSE streaming

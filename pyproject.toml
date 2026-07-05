@@ -16,10 +16,13 @@ dependencies = [
     "openai>=2.44.0",
     "passlib[bcrypt]>=1.7.4",
     "pgvector>=0.4.2",
+    "prometheus-fastapi-instrumentator>=8.0.2",
+    "pybreaker>=1.4.1",
     "pydantic-settings>=2.14.2",
     "python-jose[cryptography]>=3.5.0",
     "redis>=8.0.1",
     "sqlalchemy>=2.0.51",
+    "structlog>=26.1.0",
     "tiktoken>=0.13.0",
     "uvicorn[standard]>=0.49.0",
 ]

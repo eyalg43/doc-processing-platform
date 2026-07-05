@@ -1,5 +1,6 @@
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +12,7 @@ from app.schemas.document import DocumentCreate, DocumentResponse
 from app.services.kafka_producer import publish_document_event
 
 router = APIRouter()
+logger = structlog.get_logger(__name__)
 
 
 @router.post("/", response_model=DocumentResponse, status_code=202)
@@ -31,6 +33,7 @@ async def create_document(
 
     publish_document_event(document.id, tenant_id)
 
+    logger.info("document_created", document_id=str(document.id), tenant_id=str(tenant_id), filename=body.filename)
     return document
 
 
@@ -40,22 +43,21 @@ async def get_document(
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(check_rate_limit),
 ):
-    # Cache-aside: check Redis first
     cached = await get_cached_document(document_id)
     if cached:
         if str(cached.get("tenant_id")) != str(tenant_id):
             raise HTTPException(status_code=404, detail="Document not found")
+        logger.info("document_cache_hit", document_id=str(document_id), tenant_id=str(tenant_id))
         return cached
 
-    # Cache miss: query Postgres
     document = await db.get(Document, document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     if document.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # Store in Redis for next time
     data = DocumentResponse.model_validate(document).model_dump(mode="json")
     await set_cached_document(document_id, data)
 
+    logger.info("document_cache_miss", document_id=str(document_id), tenant_id=str(tenant_id))
     return document
