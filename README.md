@@ -43,12 +43,14 @@ Company ──HTTP POST /documents──▶ FastAPI (JWT auth, multi-tenant)
 | **Observability** | Prometheus + Grafana (metrics + dashboards) |
 | **Logging** | structlog (structured JSON logs + correlation IDs) |
 | **Resilience** | pybreaker (circuit breaker around OpenAI) |
-| **Infra** | Docker Compose |
+| **Multi-agent** | CrewAI (Extractor, Summarizer, QA, Validator agents) |
+| **Containerisation** | Docker + Docker Compose |
+| **Cloud** | AWS (EKS, RDS, ElastiCache, ECR, S3) via Terraform |
 | **Dependency Management** | uv (Astral) |
 
 ---
 
-## Features Built (Phases 1–5)
+## Features Built (Phases 1–6)
 
 ### Phase 1 — Foundation
 - Multi-tenant FastAPI REST API
@@ -86,6 +88,17 @@ Company ──HTTP POST /documents──▶ FastAPI (JWT auth, multi-tenant)
 - Circuit breaker (`pybreaker`) around all OpenAI calls — trips after 3 failures, recovers after 30 seconds
 - Dead Letter Queue — tasks that exhaust all retries are routed to `documents.dlq` instead of being silently dropped
 
+### Phase 6 — Cloud Infrastructure
+- Full AWS infrastructure defined as Terraform code (IaC)
+- VPC with public/private subnets across 2 availability zones
+- EKS (managed Kubernetes) running FastAPI + Celery as separate deployments
+- RDS Postgres + ElastiCache Redis in private subnets (not internet-accessible)
+- ECR as Docker image registry
+- S3 for document storage + Terraform remote state
+- Kubernetes manifests: Deployments, Services, Jobs (Alembic migrations)
+- Kubernetes Secrets for zero-secrets-in-git credential management
+- Graceful Kafka fallback: direct Celery dispatch when broker unavailable
+
 ---
 
 ## Request Lifecycle
@@ -95,13 +108,14 @@ POST /documents
   → validate JWT (tenant_id extracted)
   → check rate limit (Redis)
   → persist document to Postgres (status: pending)
-  → publish event to Kafka
+  → publish event to Kafka (falls back to direct Celery if Kafka unavailable)
   → return 202 Accepted
 
 [async, in background]
   Kafka Consumer → dispatch Celery task
   Celery Worker:
-    → extract text + summarize (OpenAI)
+    → Extractor Agent: pull structured facts from document
+    → Summarizer Agent: write human-readable summary
     → chunk text (500 tokens, 50 overlap)
     → embed chunks (OpenAI embeddings)
     → store chunks + vectors in pgvector
@@ -111,8 +125,9 @@ POST /documents
 POST /ask?question=...
   → embed question (OpenAI)
   → cosine similarity search in pgvector (top 5 chunks)
-  → pass chunks as context to GPT-4o-mini
-  → return answer grounded in document content
+  → QA Agent: formulate answer from retrieved chunks
+  → Validator Agent: verify answer is grounded in source, not hallucinated
+  → stream answer token by token (SSE)
 ```
 
 ---
@@ -147,7 +162,24 @@ OPENAI_API_KEY=sk-...
 
 ---
 
+## Cloud Deployment (AWS)
+
+Infrastructure is fully defined as Terraform code in `terraform/`.
+
+```bash
+cd terraform
+terraform apply   # provision all AWS resources (~15 min)
+terraform destroy # tear down everything to stop billing
+```
+
+Kubernetes manifests in `k8s/`:
+- `api-deployment.yaml` — FastAPI (2 replicas)
+- `worker-deployment.yaml` — Celery worker (2 replicas)
+- `service.yaml` — AWS Load Balancer
+- `migrate-job.yaml` — Alembic migration job (run once per deploy)
+
+---
+
 ## Coming Next
 
-- **Phase 6** — AWS deployment (EKS, RDS, ElastiCache, MSK, S3) via Terraform + GitHub Actions CI/CD
-- **Phase 7** — Real file uploads (PDF parsing), CrewAI multi-agent orchestration, SSE streaming
+- **Phase 7** — Real PDF uploads (PyMuPDF), CrewAI multi-agent (Extractor + Summarizer + QA + Validator), SSE streaming, Locust load tests

@@ -1,6 +1,7 @@
 # Terraform state bucket — must exist before terraform init
 resource "aws_s3_bucket" "terraform_state" {
-  bucket = "doc-platform-terraform-state"
+  bucket        = "doc-platform-terraform-state"
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_versioning" "terraform_state" {
