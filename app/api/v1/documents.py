@@ -1,39 +1,51 @@
 import uuid
+from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import get_cached_document, set_cached_document
 from app.core.rate_limit import check_rate_limit
 from app.db.session import get_db
 from app.models.document import Document
-from app.schemas.document import DocumentCreate, DocumentResponse
+from app.schemas.document import DocumentResponse
 from app.services.kafka_producer import publish_document_event
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
 
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
+
 
 @router.post("/", response_model=DocumentResponse, status_code=202)
 async def create_document(
-    body: DocumentCreate,
+    file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(check_rate_limit),
 ):
     document = Document(
         tenant_id=tenant_id,
-        filename=body.filename,
-        content_type=body.content_type,
+        filename=file.filename,
+        content_type=file.content_type or "application/octet-stream",
         status="pending",
     )
     db.add(document)
     await db.commit()
     await db.refresh(document)
 
+    # Save file to disk so the Celery worker can read it
+    file_path = UPLOAD_DIR / f"{document.id}.pdf"
+    content = await file.read()
+    file_path.write_bytes(content)
+
+    document.file_path = str(file_path)
+    await db.commit()
+
     publish_document_event(document.id, tenant_id)
 
-    logger.info("document_created", document_id=str(document.id), tenant_id=str(tenant_id), filename=body.filename)
+    logger.info("document_created", document_id=str(document.id), tenant_id=str(tenant_id), filename=file.filename)
     return document
 
 

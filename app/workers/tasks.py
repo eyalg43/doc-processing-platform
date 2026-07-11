@@ -25,7 +25,8 @@ def process_document(self, document_id: str, tenant_id: str) -> dict:
 
 
 async def _process(task, document_id: str, tenant_id: str) -> dict:
-    from app.services.ai import chunk_text, embed_chunks, extract_and_summarize
+    from app.services.ai import chunk_text, embed_chunks, extract_text_from_pdf
+    from app.services.agents import run_document_processing_crew
 
     engine = create_async_engine(settings.database_url)
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
@@ -50,10 +51,11 @@ async def _process(task, document_id: str, tenant_id: str) -> dict:
                 document.status = "processing"
                 await db.commit()
 
-                # Real AI: extract text and summarize
-                extracted_text, summary = extract_and_summarize(
-                    document.filename, document.content_type
-                )
+                # Extract real text from the uploaded PDF
+                extracted_text = extract_text_from_pdf(document.file_path)
+
+                # Run CrewAI agents: Extractor + Summarizer
+                structured_facts, summary = run_document_processing_crew(extracted_text)
 
                 # Chunk and embed
                 chunks = chunk_text(extracted_text)
@@ -71,7 +73,7 @@ async def _process(task, document_id: str, tenant_id: str) -> dict:
                     db.add(chunk)
 
                 document.status = "done"
-                document.extracted_text = extracted_text
+                document.extracted_text = structured_facts
                 document.summary = summary
                 await db.commit()
 

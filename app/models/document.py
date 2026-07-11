@@ -22,6 +22,7 @@ class Document(Base):
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="pending", index=True
     )
+    file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

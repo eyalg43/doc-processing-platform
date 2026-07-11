@@ -44,6 +44,8 @@ Company ──HTTP POST /documents──▶ FastAPI (JWT auth, multi-tenant)
 | **Logging** | structlog (structured JSON logs + correlation IDs) |
 | **Resilience** | pybreaker (circuit breaker around OpenAI) |
 | **Multi-agent** | CrewAI (Extractor, Summarizer, QA, Validator agents) |
+| **PDF Parsing** | PyMuPDF (fitz) |
+| **Streaming** | SSE (Server-Sent Events) via sse-starlette |
 | **Containerisation** | Docker + Docker Compose |
 | **Cloud** | AWS (EKS, RDS, ElastiCache, ECR, S3) via Terraform |
 | **Dependency Management** | uv (Astral) |
@@ -180,6 +182,17 @@ Kubernetes manifests in `k8s/`:
 
 ---
 
+### Phase 7 — Real PDFs, Multi-Agent, SSE Streaming
+- Real file uploads via multipart form — PDFs saved to disk, path stored in Postgres
+- PyMuPDF (fitz) extracts raw text page by page from real PDF files
+- CrewAI multi-agent pipeline at upload time: Extractor agent (key facts) + Summarizer agent (plain-language summary)
+- CrewAI multi-agent pipeline at query time: QA agent (answers from chunks) + Validator agent (removes hallucinations)
+- Validate-then-stream pattern: full answer validated before streaming begins, ensuring correctness
+- `POST /ask/stream` endpoint streams validated answer word by word via SSE
+- `asyncio.to_thread` keeps the async API responsive while blocking CrewAI runs in a background thread
+
+---
+
 ## Coming Next
 
-- **Phase 7** — Real PDF uploads (PyMuPDF), CrewAI multi-agent (Extractor + Summarizer + QA + Validator), SSE streaming, Locust load tests
+- **Phase 7 (remaining)** — Locust load tests, test coverage, final polish

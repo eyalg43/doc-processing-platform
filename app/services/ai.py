@@ -1,5 +1,6 @@
 import json
 
+import fitz  # PyMuPDF
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -25,6 +26,13 @@ _llm = ChatOpenAI(
     openai_api_key=settings.openai_api_key,
     temperature=0,
 )
+
+
+def extract_text_from_pdf(file_path: str) -> str:
+    doc = fitz.open(file_path)
+    pages = [page.get_text() for page in doc]
+    doc.close()
+    return "\n\n".join(pages).strip()
 
 
 @openai_breaker
