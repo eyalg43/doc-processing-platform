@@ -190,9 +190,6 @@ Kubernetes manifests in `k8s/`:
 - Validate-then-stream pattern: full answer validated before streaming begins, ensuring correctness
 - `POST /ask/stream` endpoint streams validated answer word by word via SSE
 - `asyncio.to_thread` keeps the async API responsive while blocking CrewAI runs in a background thread
-
----
-
-## Coming Next
-
-- **Phase 7 (remaining)** — Locust load tests, test coverage, final polish
+- 10 integration tests (pytest + pytest-asyncio + httpx) covering auth, document CRUD, 404 handling, and tenant isolation
+- Locust load test (`locustfile.py`) simulating concurrent tenants uploading and querying documents
+- Load testing revealed bcrypt blocking the async event loop under concurrency — fixed by offloading to `asyncio.to_thread`, reducing `/auth/register` P95 from 61s to 3.7s
